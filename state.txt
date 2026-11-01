@@ -1,0 +1,7 @@
+State Encoding Purpose
+FETCH 000 Fetch instruction
+DECODE 001 Decode and read registers
+EXEC 010 Execute operation
+MEM 011 Access data memory
+WB 100 Write result back
+HALT 101 Stopped

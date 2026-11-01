@@ -1,0 +1,11 @@
+Opcode Instruction Meaning
+0001 ADD Rd = Rs + Rt
+0010 SUB Rd = Rs - Rt
+0011 AND Rd = Rs & Rt
+0100 OR Rd = Rs | Rt
+0101 ADDI Rd = Rs + immediate
+0110 LW Rd = Memory[Rs + immediate]
+0111 SW Memory[Rs + immediate] = Rd
+1000 BEQ Branch if Rs == Rt
+1001 JMP Jump to address
+1010 HLT Stop the CPU
