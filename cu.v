@@ -1,80 +1,51 @@
 module cu(
-    input wire clk,
-    input wire rst,
-    input wire [3:0] op,
-    input wire eq,
-    output reg pcinc,
-    output reg pcload,
-    output reg pcjmp,
-    output reg irwe,
-    output reg marwe,
-    output reg rfwe,
-    output reg dmemwe,
-    output wire aluimm,
-    output wire swsel,
-    output wire memtoreg,
-    output reg [3:0] aluop,
-    output wire hlt
+    input wire clk, rst, zero,
+    input wire [3:0] op, rd, rs, rt,
+    output wire halted, irwe, pcinc, pcload, marwe, rfwe, dmemwe,
+    output wire asel, pcsel, wsel, mdsel,
+    output wire [3:0] raa, rab, aluop,
+    output wire [2:0] bsel
 );
-    localparam FETCH = 3'd0, DECODE = 3'd1, EXEC = 3'd2, MEM = 3'd3, WB = 3'd4, HALT = 3'd5;
-    localparam ADD = 4'h1, SUB = 4'h2, AND = 4'h3, OR = 4'h4, ADDI = 4'h5,
-               LW = 4'h6, SW = 4'h7, BEQ = 4'h8, JMP = 4'h9, HLT = 4'hA;
+    localparam [2:0] FETCH = 0, DECODE = 1, EXEC = 2, MEM = 3, WB = 4, HALT = 5;
+    localparam [3:0] NOP = 0, SUB = 2, AND = 3, OR = 4, ALUX = 5, ADDI = 6, LDI = 7,
+                     LUI = 8, LD = 9, ST = 10, BZ = 11, BNZ = 12, JMP = 13, JAL = 14, HLT = 15;
 
     reg [2:0] state;
+    wire br   = (op == BZ || op == BNZ || op == JMP);
+    wire ldst = (op == LD || op == ST);
 
     always @(posedge clk) begin
         if (rst) state <= FETCH;
         else case (state)
-            FETCH: state <= DECODE;
-            DECODE: state <= EXEC;
-            EXEC: case (op)
-                ADD, SUB, AND, OR, ADDI: state <= WB;
-                LW, SW: state <= MEM;
-                HLT: state <= HALT;
-                default: state <= FETCH;
-            endcase
-            MEM: state <= (op == LW) ? WB : FETCH;
-            WB: state <= FETCH;
-            HALT: state <= HALT;
-            default: state <= FETCH;
+            FETCH:   state <= DECODE;
+            DECODE:  state <= (op == NOP) ? FETCH : (op == HLT) ? HALT : EXEC;
+            EXEC:    state <= br ? FETCH : ldst ? MEM : WB;
+            MEM:     state <= (op == LD) ? WB : FETCH;
+            WB:      state <= FETCH;
+            default: state <= HALT;
         endcase
     end
 
-    assign aluimm = (op == ADDI) || (op == LW) || (op == SW);
-    assign swsel = (op == SW);
-    assign memtoreg = (op == LW);
-    assign hlt = (state == HALT);
+    assign halted = (state == HALT);
+    assign irwe   = (state == FETCH);
+    assign pcinc  = (state == FETCH);
+    assign marwe  = (state == EXEC) && !br;
+    assign pcload = (state == EXEC) && (op == JMP || op == JAL ||
+                    (op == BZ && zero) || (op == BNZ && !zero));
+    assign dmemwe = (state == MEM) && (op == ST);
+    assign rfwe   = (state == WB);
 
-    always @(*) begin
-        pcinc = 0;
-        pcload = 0;
-        pcjmp = 0;
-        irwe = 0;
-        marwe = 0;
-        rfwe = 0;
-        dmemwe = 0;
-        aluop = 4'h0;
+    assign asel   = br || op == JAL;
+    assign pcsel  = (op == JAL);
+    assign wsel   = (op == LD);
+    assign mdsel  = (op == LUI);
 
-        case (op)
-            ADD, SUB, AND, OR: aluop = op;
-            ADDI, LW, SW: aluop = ADD;
-        endcase
+    assign raa = (op == ALUX || op == LUI || op == BZ || op == BNZ) ? rd : rs;
+    assign rab = (op == ST) ? rd : (op == ALUX || op == JAL) ? rs : rt;
 
-        case (state)
-            FETCH: begin
-                irwe = 1;
-                pcinc = 1;
-            end
-            EXEC: case (op)
-                LW, SW: marwe = 1;
-                BEQ: pcload = eq;
-                JMP: begin
-                    pcload = 1;
-                    pcjmp = 1;
-                end
-            endcase
-            MEM: dmemwe = (op == SW);
-            WB: rfwe = 1;
-        endcase
-    end
+    assign bsel = (op == ADDI || ldst) ? 1 : (op == LDI) ? 2 :
+                  (op == BZ || op == BNZ) ? 3 : (op == JMP) ? 4 : 0;
+
+    assign aluop = (op == SUB) ? 1 : (op == AND) ? 2 : (op == OR) ? 3 :
+                   (op == ALUX) ? rt : (op == LDI) ? 4'hA : (op == JAL) ? 4'h9 : 0;
 endmodule

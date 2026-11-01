@@ -5,7 +5,7 @@ module dmem(
     input wire we,
     input wire [15:0] wdat
 );
-    reg [15:0] mem [65535:0];
+    reg [15:0] mem [0:65535];
     assign rdat = mem[adr];
     always @(posedge clk) begin
         if (we) mem[adr] <= wdat;

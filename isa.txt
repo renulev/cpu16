@@ -1,11 +1,84 @@
-Opcode Instruction Meaning
-0001 ADD Rd = Rs + Rt
-0010 SUB Rd = Rs - Rt
-0011 AND Rd = Rs & Rt
-0100 OR Rd = Rs | Rt
-0101 ADDI Rd = Rs + immediate
-0110 LW Rd = Memory[Rs + immediate]
-0111 SW Memory[Rs + immediate] = Rd
-1000 BEQ Branch if Rs == Rt
-1001 JMP Jump to address
-1010 HLT Stop the CPU
+CPU16 ISA
+=========
+
+Word size      16 bits (instructions and data)
+Registers      r0-r15, 16 bits, all general purpose (no hardwired zero)
+Imem / Dmem    separate (Harvard), 64K words each, word addressed
+PC             16 bits, counts words. After FETCH it points at the NEXT instruction
+Flags          none. Compare with SLT/SLTU/EQ into a register, then BZ/BNZ
+Reset          pc = 0, all registers = 0, state = FETCH
+
+Instruction formats
+-------------------
+        15      12 11     8 7      4 3      0
+  R     | op      | rd     | rs     | rt     |
+  I     | op      | rd     | imm8            |
+  J     | op      | imm12                    |
+
+Opcode map
+----------
+ op  name   format  operation
+ --  -----  ------  ---------------------------------------------------
+ 0   NOP    -       no operation
+ 1   ADD    R       rd = rs + rt
+ 2   SUB    R       rd = rs - rt
+ 3   AND    R       rd = rs & rt
+ 4   OR     R       rd = rs | rt
+ 5   ALUX   R       rd = alu(fn = rt, a = rd, b = rs)   (two-address, see below)
+ 6   ADDI   R       rd = rs + sext4(rt)                 (rt is a signed -8..7)
+ 7   LDI    I       rd = zext8(imm8)
+ 8   LUI    I       rd = {imm8, rd[7:0]}                (sets high byte only)
+ 9   LD     R       rd = dmem[rs + sext4(rt)]
+ A   ST     R       dmem[rs + sext4(rt)] = rd           (rd is the SOURCE)
+ B   BZ     I       if (rd == 0) pc = pc + sext8(imm8)
+ C   BNZ    I       if (rd != 0) pc = pc + sext8(imm8)
+ D   JMP    J       pc = pc + sext12(imm12)
+ E   JAL    R       rd = pc ; pc = rs                   (rt unused)
+ F   HLT    -       stop; halted output goes high
+
+Branch/jump offsets are relative to the address of the instruction AFTER the
+branch (pc already incremented). To loop back to the instruction N words
+before the branch itself, offset = -(N+1).
+
+ALUX function codes (rt field)
+------------------------------
+ rt  fn      result
+ --  ------  ---------------------------------
+ 0   ADD     rd + rs
+ 1   SUB     rd - rs
+ 2   AND     rd & rs
+ 3   OR      rd | rs
+ 4   XOR     rd ^ rs
+ 5   NOT     ~rd                (rs ignored)
+ 6   SHL     rd << rs[3:0]
+ 7   SHR     rd >> rs[3:0]      (logical)
+ 8   SAR     rd >>> rs[3:0]     (arithmetic)
+ 9   PASSA   rd                 (rs ignored, acts as NOP)
+ A   PASSB   rs                 (MOV rd, rs)
+ B   SLT     rd < rs  signed   -> 1 or 0
+ C   SLTU    rd < rs  unsigned -> 1 or 0
+ D   EQ      rd == rs          -> 1 or 0
+ E   INC     rd + 1             (rs ignored)
+ F   NEG     -rd                (rs ignored)
+
+The ALUX rt field maps 1:1 onto the alu.v op input.
+
+Assembler idioms
+----------------
+ MOV rd, rs        ALUX rd, rs, A
+ NOT rd            ALUX rd, rd, 5
+ INC rd            ALUX rd, rd, E
+ CLR rd            SUB rd, rd, rd   (or LDI rd, 0)
+ SLT rd, rs        ALUX rd, rs, B   (rd is overwritten)
+ LI16 rd, imm16    LDI rd, lo ; LUI rd, hi
+ JR rs             JAL rs, rs       (destroys rs; use a scratch rd to keep rs)
+ CALL rs           JAL r15, rs      (r15 = link by convention)
+ RET               JAL rX, r15      (rX is a scratch register)
+ JMP far           LI16 rX, addr ; JAL rY, rX
+ bne a,b,label     MOV t,a ; EQ t,b ; BZ t,label
+
+Limits
+------
+ - LDI/BZ/BNZ immediates are 8 bits, LD/ST/ADDI offsets are 4 bits.
+ - Branch range is -128..+127 words, JMP range is -2048..+2047 words.
+ - Use JAL for anything farther.

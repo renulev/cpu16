@@ -1,7 +1,94 @@
-State Encoding Purpose
-FETCH 000 Fetch instruction
-DECODE 001 Decode and read registers
-EXEC 010 Execute operation
-MEM 011 Access data memory
-WB 100 Write result back
-HALT 101 Stopped
+CPU16 control FSM (multi-cycle)
+===============================
+
+States (3-bit encoding)
+  FETCH  000
+  DECODE 001
+  EXEC   010
+  MEM    011
+  WB     100
+  HALT   101      halted = (state == HALT)
+
+Reset: state = FETCH.
+
+Datapath notes
+--------------
+ - imem is read combinationally at pc.q, dmem combinationally at mar.q.
+ - mar doubles as the result latch: it holds the ALU result (or link address)
+   for register-writing instructions and the address for LD/ST.
+ - Register file reads are combinational, written only in WB.
+
+Next-state logic
+----------------
+ FETCH   -> DECODE
+ DECODE  -> FETCH   if op == NOP
+            HALT    if op == HLT
+            EXEC    otherwise
+ EXEC    -> FETCH   if op in {BZ, BNZ, JMP}
+            MEM     if op in {LD, ST}
+            WB      otherwise (ADD SUB AND OR ALUX ADDI LDI LUI JAL)
+ MEM     -> WB      if op == LD
+            FETCH   if op == ST
+ WB      -> FETCH
+ HALT    -> HALT
+
+Cycles per instruction
+----------------------
+ NOP 2 | HLT 2 | BZ/BNZ/JMP 3 | ST 4 | ADD..LUI, JAL 4 | LD 5
+
+Actions per state
+-----------------
+ FETCH   ir.we = 1, ir.d = imem[pc.q], pc.inc = 1
+ DECODE  nothing is latched, op is now valid in ir
+ EXEC    per-instruction, see table
+ MEM     ST: dmem.we = 1 (adr = mar.q, wdat = rdatb)
+         LD: dmem read only (rdat valid, captured in WB)
+ WB      rf.we = 1, wadr = ir.rd, wdat = wsel ? dmem.rdat : mar.q
+
+Control table (EXEC unless noted)
+---------------------------------
+ raa = rf read port A address, rab = port B address
+ asel: 0 = rdata, 1 = pc.q
+ bsel: 0 = rdatb, 1 = sext4(rt), 2 = zext8(imm8), 3 = sext8(imm8), 4 = sext12(imm12)
+ mdsel: 0 = alu.y, 1 = {imm8, rdata[7:0]}   (mar.d select)
+ pcsel: 0 = alu.y, 1 = rdatb                 (pc.d select)
+ wsel (WB): 0 = mar.q, 1 = dmem.rdat
+
+ op    raa  rab  asel bsel aluop   mdsel mar.we pc.load           wsel
+ ----  ---  ---  ---- ---- ------- ----- ------ ----------------- ----
+ ADD   rs   rt   0    0    ADD     0     1      -                 0
+ SUB   rs   rt   0    0    SUB     0     1      -                 0
+ AND   rs   rt   0    0    AND     0     1      -                 0
+ OR    rs   rt   0    0    OR      0     1      -                 0
+ ALUX  rd   rs   0    0    ir.rt   0     1      -                 0
+ ADDI  rs   -    0    1    ADD     0     1      -                 0
+ LDI   -    -    -    2    PASSB   0     1      -                 0
+ LUI   rd   -    -    -    -       1     1      -                 0
+ LD    rs   -    0    1    ADD     0     1      -                 1 (WB)
+ ST    rs   rd   0    1    ADD     0     1      -                 -
+ BZ    rd   -    1    3    ADD     -     0      rdata == 0        -
+ BNZ   rd   -    1    3    ADD     -     0      rdata != 0        -
+ JMP   -    -    1    4    ADD     -     0      1                 -
+ JAL   -    rs   1    -    PASSA   0     1      1 (pcsel = 1)     0
+ NOP/HLT: no EXEC state
+
+ ST sends dmem.wdat = rdatb (port B reads rd at MEM; rab = rd).
+ JAL: mar <= old pc.q (link) and pc <= rdatb on the same clock edge.
+ WB register write applies to: ADD SUB AND OR ALUX ADDI LDI LUI LD JAL.
+
+aluop values come from alu.v: ADD 0, SUB 1, AND 2, OR 3, PASSA 9, PASSB A.
+
+State diagram
+-------------
+                 +-----------------------------+
+                 |                             |
+                 v                             |
+   reset --> FETCH --> DECODE --+--- NOP ------+
+                                |
+                                +--- HLT ----> HALT (loops)
+                                |
+                                +--- other --> EXEC --+-- BZ/BNZ/JMP --> FETCH
+                                                      |
+                                                      +-- LD/ST --> MEM --+-- ST --> FETCH
+                                                      |                   +-- LD --> WB
+                                                      +-- others --> WB --> FETCH

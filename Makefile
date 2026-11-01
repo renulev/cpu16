@@ -1,6 +1,6 @@
 SRC = alu.v cu.v dmem.v imem.v ir.v mar.v pc.v rf.v top.v
 TB = tb.v
-OUT = cpu.vvp
+OUT = cpu16.vvp
 
 all: $(OUT)
 
