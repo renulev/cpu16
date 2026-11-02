@@ -1,0 +1,3 @@
+ADD R1, R0, R0
+ADDI R1, R1, 5
+HLT
