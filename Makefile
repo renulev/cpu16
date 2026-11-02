@@ -1,4 +1,4 @@
-SRC = alu.v cu.v dmem.v imem.v ir.v mar.v pc.v rf.v top.v
+SRC = alu.v cu.v mem.v ir.v mar.v pc.v rf.v dp.v top.v
 TB = tb.v
 OUT = cpu16.vvp
 
